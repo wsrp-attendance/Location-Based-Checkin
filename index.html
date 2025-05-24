@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WildStang GPS Check-In</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 2em;
+    }
+    #map {
+      width: 100%;
+      max-width: 400px;
+      height: 400px;
+      margin: 1em auto;
+      border: 1px solid #ccc;
+    }
+    #status {
+      margin-top: 1em;
+      font-weight: bold;
+      white-space: pre-line;
+    }
+    button {
+      font-size: 1.2em;
+      padding: 0.5em 1.5em;
+      margin-top: 1.5em;
+    }
+  </style>
+</head>
+<body>
+  <h2>WildStang GPS Check-In</h2>
+  <div id="map"></div>
+  <button id="checkInBtn" onclick="checkIn()">Check In</button>
+  <p id="status"></p>
+
+  <script>
+    const TARGET_LAT = 42.060864;
+    const TARGET_LNG = -87.943708;
+    const MAX_DISTANCE_METERS = 150;
+
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz5iH0siifcP24euGCd_HOYFLm2LDsghZtYtEh43_2V6zfLQ32s5mJ4YI1xbDIDHeyJ/exec';
+
+    let map, userMarker, shopMarker;
+
+    function toRad(x) { return x * Math.PI / 180; }
+
+    function getDistance(lat1, lng1, lat2, lng2) {
+      const R = 6371000;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                Math.sin(dLng / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    function initMap(lat, lng) {
+      map = L.map('map').setView([lat, lng], 17);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      userMarker = L.marker([lat, lng]).addTo(map).bindPopup("You are here").openPopup();
+
+      L.circle([TARGET_LAT, TARGET_LNG], {
+        color: 'green',
+        fillColor: '#3f3',
+        fillOpacity: 0.3,
+        radius: MAX_DISTANCE_METERS
+      }).addTo(map);
+
+      const redIcon = L.icon({
+        iconUrl: 'https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-red.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+
+      shopMarker = L.marker([TARGET_LAT, TARGET_LNG], { icon: redIcon })
+        .addTo(map)
+        .bindTooltip("WildStang Robotics Shop", {
+          permanent: true,
+          direction: "right",
+          offset: [10, 0]
+        });
+    }
+
+    function updateMap(lat, lng) {
+      if (!map) return initMap(lat, lng);
+      userMarker.setLatLng([lat, lng]);
+      map.setView([lat, lng], 17);
+    }
+
+    function checkIn() {
+      const status = document.getElementById("status");
+      const button = document.getElementById("checkInBtn");
+
+      status.textContent = "🔍 Checking location...";
+
+      if (!navigator.geolocation) {
+        status.textContent = "❌ Geolocation is not supported.";
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        updateMap(lat, lng);
+
+        const distance = getDistance(lat, lng, TARGET_LAT, TARGET_LNG);
+        if (distance > MAX_DISTANCE_METERS) {
+          status.textContent = "❌ You need to be at the WildStang Robotics Shop to check in.";
+          return;
+        }
+
+        const uid = "uid-" + Date.now();
+        const formData = new FormData();
+        formData.append("uid", uid);
+        formData.append("latitude", lat);
+        formData.append("longitude", lng);
+
+        fetch(SCRIPT_URL, {
+          method: "POST",
+          body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            status.textContent = "✅ " + data.message;
+            button.textContent = "Close Window";
+            button.onclick = () => window.close();
+          } else {
+            status.textContent = "❌ " + data.message;
+          }
+        })
+        .catch(err => {
+          status.textContent = "❌ Failed to check in: " + err;
+        });
+      }, err => {
+        status.textContent = "❌ Location error: " + err.message;
+      }, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+    }
+
+    navigator.geolocation.getCurrentPosition(pos => {
+      updateMap(pos.coords.latitude, pos.coords.longitude);
+    });
+  </script>
+</body>
+</html>
